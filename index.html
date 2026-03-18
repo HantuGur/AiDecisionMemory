@@ -402,29 +402,115 @@ function Checkin({ d, onSave, onBack }) {
   );
 }
 
-function PatternReport({ decisions, onBack }) {
+// ── Settings page ──────────────────────────────────────────
+function Settings({ onBack }) {
+  const [key, setKey] = useState(localStorage.getItem("litellm_api_key") || "");
+  const [saved, setSaved] = useState(false);
+  function handleSave() {
+    localStorage.setItem("litellm_api_key", key.trim());
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+  function handleClear() {
+    localStorage.removeItem("litellm_api_key");
+    setKey("");
+  }
+  const hasKey = !!localStorage.getItem("litellm_api_key");
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "1.75rem" }}>
+        <button style={{ ...S.bg, padding: "7px 14px" }} onClick={onBack}>←</button>
+        <div>
+          <div style={{ ...S.ttl, marginBottom: 0, fontSize: "19px" }}>Pengaturan</div>
+          <div style={{ fontSize: "12px", color: "#b0aa9e", fontWeight: 300 }}>Konfigurasi API untuk fitur Pola</div>
+        </div>
+      </div>
+
+      <div style={{ ...S.inf, marginBottom: "1.5rem" }}>
+        <div style={{ fontSize: "13px", color: "#6a6458", lineHeight: 1.7, fontWeight: 300 }}>
+          Fitur <strong style={{ fontWeight: 500, color: "#3a5c4a" }}>Analisis Pola</strong> membutuhkan API key dari LiteLLM.<br />
+          Key disimpan lokal di browser kamu — tidak dikirim ke mana pun selain endpoint AI.
+        </div>
+        <div style={{ marginTop: "10px", fontSize: "12px", color: "#b0aa9e", fontFamily: "monospace" }}>
+          Endpoint: litellm.koboi2026.biz.id/v1
+        </div>
+      </div>
+
+      <div style={S.fg}>
+        <label style={S.lb}>API Key *</label>
+        <input
+          type="password"
+          style={{ ...S.inp, fontFamily: "monospace", fontSize: "13px" }}
+          placeholder="sk-xxxxxxxxxxxxxxxxxxxx"
+          value={key}
+          onChange={e => setKey(e.target.value)}
+        />
+      </div>
+
+      <div style={{ display: "flex", gap: "10px", marginTop: ".5rem" }}>
+        {hasKey && <button style={S.bg} onClick={handleClear}>Hapus key</button>}
+        <button
+          style={{ ...S.bp, flex: 1, background: saved ? "#4a7a5a" : "#3a5c4a", opacity: !key.trim() ? .5 : 1 }}
+          disabled={!key.trim()}
+          onClick={handleSave}
+        >
+          {saved ? "✓ Tersimpan" : "Simpan API Key"}
+        </button>
+      </div>
+
+      <div style={{ marginTop: "1.75rem", padding: "1rem", background: "#faf9f6", border: "1px solid #e8e4db", borderRadius: "10px" }}>
+        <div style={{ fontSize: "11px", color: "#b0aa9e", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: "8px" }}>Status</div>
+        <div style={{ fontSize: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: hasKey ? "#7b9e8a" : "#d8c8b8", display: "inline-block" }} />
+          <span style={{ color: hasKey ? "#3a5c4a" : "#9a9488", fontWeight: 300 }}>
+            {hasKey ? "API key aktif · fitur Pola siap digunakan" : "Belum ada API key · fitur Pola tidak aktif"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Pattern Report ──────────────────────────────────────────
+function PatternReport({ decisions, onBack, goSettings }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
   async function generate() {
+    const apiKey = localStorage.getItem("litellm_api_key");
+    if (!apiKey) { setErr("no_key"); return; }
+
     setLoading(true); setErr(null); setReport(null);
     const summary = decisions.map((d, i) =>
       `Keputusan ${i + 1}: ${d.decision}\nKategori: ${d.category} | Emosi: ${emotionLabel(d.emotion)} | ${fmt(d.createdAt)}\nAlasan: ${d.reasons}\nEkspektasi: ${d.expectation || "tidak dicatat"}\n${d.outcome ? `Outcome (skor ${d.outcome.score}/5): ${d.outcome.reflection}` : "Belum dievaluasi"}`
     ).join("\n\n---\n\n");
+
+    const systemPrompt = `Kamu adalah teman refleksi yang bijak, hangat, dan jujur. Analisis histori keputusan yang diberikan dan buat laporan pola personal dalam Bahasa Indonesia. Nada: tenang, suportif, tapi jujur dan berbasis data nyata.`;
+    const userPrompt = `Analisis histori keputusan berikut:\n\n${summary}\n\nBuat laporan dengan format:\n\n**POLA YANG MUNCUL:**\n[2-3 pola konkret dari data ini]\n\n**KONDISI YANG PERLU DIWASPADAI:**\n[Kondisi di mana keputusanmu cenderung meleset]\n\n**APA YANG BERJALAN BAIK:**\n[Area di mana keputusanmu konsisten tepat]\n\n**PERTANYAAN UNTUK DIRENUNGKAN:**\n[2 pertanyaan refleksi dari pola nyata di atas]\n\nJangan generik. Berpijak hanya pada data yang ada.`;
+
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("https://litellm.koboi2026.biz.id/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: "gpt-4o",
           max_tokens: 1000,
-          messages: [{ role: "user", content: `Kamu adalah teman refleksi yang bijak, hangat, dan jujur. Analisis histori keputusan berikut dan buat laporan pola personal.\n\n${summary}\n\nBuat laporan dalam Bahasa Indonesia dengan nada tenang dan suportif tapi jujur.\n\nFormat:\n\n**POLA YANG MUNCUL:**\n[2-3 pola konkret dari data ini]\n\n**KONDISI YANG PERLU DIWASPADAI:**\n[Kondisi di mana keputusanmu cenderung meleset]\n\n**APA YANG BERJALAN BAIK:**\n[Area di mana keputusanmu konsisten tepat]\n\n**PERTANYAAN UNTUK DIRENUNGKAN:**\n[2 pertanyaan refleksi dari pola nyata di atas]\n\nJangan generik. Berpijak hanya pada data yang ada.` }]
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ]
         })
       });
+      if (!res.ok) { const t = await res.text(); throw new Error(`${res.status}: ${t}`); }
       const data = await res.json();
-      setReport(data.content?.find(b => b.type === "text")?.text || "Analisis tidak tersedia.");
-    } catch { setErr("Gagal menghubungi AI. Coba lagi."); }
+      setReport(data.choices?.[0]?.message?.content || "Analisis tidak tersedia.");
+    } catch (e) {
+      setErr(e.message?.includes("401") ? "api_invalid" : "Gagal menghubungi AI: " + e.message);
+    }
     setLoading(false);
   }
 
@@ -462,9 +548,23 @@ function PatternReport({ decisions, onBack }) {
             <div style={{ height: "100%", background: "#7b9e8a", borderRadius: "2px", width: "60%", animation: "pulse 1.5s ease-in-out infinite" }} />
           </div>
         </div>
+      ) : err === "no_key" ? (
+        <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
+          <div style={{ fontSize: "28px", marginBottom: ".75rem", opacity: .3 }}>⚿</div>
+          <div style={{ fontFamily: "'Lora',serif", fontSize: "16px", color: "#6a6458", marginBottom: "8px" }}>API key belum diset</div>
+          <div style={{ fontSize: "13px", color: "#b0aa9e", marginBottom: "1.25rem", fontWeight: 300 }}>Masukkan API key dulu di halaman Pengaturan.</div>
+          <button style={S.bp} onClick={goSettings}>Buka Pengaturan</button>
+        </div>
+      ) : err === "api_invalid" ? (
+        <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
+          <div style={{ fontSize: "14px", color: "#9a5555", marginBottom: "1rem" }}>API key tidak valid atau expired.</div>
+          <button style={S.bp} onClick={goSettings}>Update API Key</button>
+        </div>
       ) : err ? (
-        <div><div style={{ color: "#9a5555", fontSize: "14px", marginBottom: "1rem" }}>{err}</div>
-          <button style={S.bg} onClick={generate}>Coba lagi</button></div>
+        <div>
+          <div style={{ color: "#9a5555", fontSize: "13px", marginBottom: "1rem", fontFamily: "monospace", background: "#fdf0f0", padding: "10px", borderRadius: "8px" }}>{err}</div>
+          <button style={S.bg} onClick={generate}>Coba lagi</button>
+        </div>
       ) : report ? (
         <div>
           <div style={S.pb}>
@@ -483,10 +583,9 @@ function App() {
   const [view, setView] = useState("dashboard");
   const [decisions, setDecisions] = useState([]);
   const [sel, setSel] = useState(null);
+  const hasKey = !!localStorage.getItem("litellm_api_key");
 
-  useEffect(() => {
-    setDecisions(storage.getAll());
-  }, []);
+  useEffect(() => { setDecisions(storage.getAll()); }, []);
 
   function saveDecision(form) {
     const id = `dec:${Date.now()}`;
@@ -503,6 +602,13 @@ function App() {
     setDecisions(p => p.map(x => x.id === id ? updated : x));
   }
 
+  const NAV = [
+    { id: "dashboard", label: "Beranda" },
+    { id: "history",   label: "Histori" },
+    { id: "pattern",   label: "Pola" },
+    { id: "settings",  label: "⚙" },
+  ];
+
   return (
     <div style={S.r}>
       <style>{`@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style>
@@ -511,19 +617,24 @@ function App() {
           <span style={S.logodot} />
           Decision Memory
         </div>
-        <nav style={{ display: "flex", gap: "2px", marginLeft: "auto" }}>
-          {[{ id: "dashboard", label: "Beranda" }, { id: "history", label: "Histori" }, { id: "pattern", label: "Pola" }].map(n => (
+        <nav style={{ display: "flex", gap: "2px", marginLeft: "auto", alignItems: "center" }}>
+          {NAV.map(n => (
             <NavBtn key={n.id} label={n.label} active={view === n.id} onClick={() => setView(n.id)} />
           ))}
+          {!hasKey && (
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#d8936a", marginLeft: "2px", flexShrink: 0, cursor: "pointer" }}
+              title="API key belum diset" onClick={() => setView("settings")} />
+          )}
         </nav>
       </header>
       <main style={S.pg}>
         {view === "dashboard" && <Dashboard decisions={decisions} go={setView} pick={setSel} />}
-        {view === "new" && <NewDecision onSave={saveDecision} onBack={() => setView("dashboard")} />}
-        {view === "history" && <History decisions={decisions} go={setView} pick={setSel} />}
-        {view === "detail" && sel && <Detail d={sel} go={setView} onCheckin={() => setView("checkin")} />}
-        {view === "checkin" && sel && <Checkin d={sel} onSave={updateDecision} onBack={() => setView("dashboard")} />}
-        {view === "pattern" && <PatternReport decisions={decisions} onBack={() => setView("dashboard")} />}
+        {view === "new"       && <NewDecision onSave={saveDecision} onBack={() => setView("dashboard")} />}
+        {view === "history"   && <History decisions={decisions} go={setView} pick={setSel} />}
+        {view === "detail"    && sel && <Detail d={sel} go={setView} onCheckin={() => setView("checkin")} />}
+        {view === "checkin"   && sel && <Checkin d={sel} onSave={updateDecision} onBack={() => setView("dashboard")} />}
+        {view === "pattern"   && <PatternReport decisions={decisions} onBack={() => setView("dashboard")} goSettings={() => setView("settings")} />}
+        {view === "settings"  && <Settings onBack={() => setView("dashboard")} />}
       </main>
       {(view === "dashboard" || view === "history") && (
         <button style={S.fab} onClick={() => setView("new")}>+</button>
@@ -537,3 +648,4 @@ root.render(<App />);
 </script>
 </body>
 </html>
+
